@@ -45,6 +45,9 @@ RUN apt-get update && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/*
 
+# pip runs as root on purpose, the image is only for the fuzz targets
+ENV PIP_ROOT_USER_ACTION=ignore
+
 RUN CC=clang CXX=clang++ CLANG_BIN=clang pip install --no-cache-dir atheris==3.0.0 pymongo==4.16.0
 
 WORKDIR /src
