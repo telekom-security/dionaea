@@ -43,7 +43,8 @@ jobs:
         if: matrix.stage == 'c'
         run: |
           mkdir -p build-fuzz
-          docker run --rm -v "$PWD":/src:ro -v "$PWD/build-fuzz":/out dionaea-fuzz-c /src/tests/fuzz/c/build.sh
+          docker run --rm -v "$PWD":/src:ro -v "$PWD/build-fuzz":/out dionaea-fuzz-c \
+            /src/tests/fuzz/c/build.sh /src /out ${{ matrix.target }}
 
       - name: Run ${{ matrix.target }} for 5 minutes
         run: |

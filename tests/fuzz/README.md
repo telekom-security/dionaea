@@ -59,6 +59,10 @@ failing inputs go to `OUT/artifacts/TARGET`. Reproduce and minimize a failing in
     docker run --rm -v "$PWD":/src:ro -v "$PWD/build-fuzz":/out dionaea-fuzz-c \
       /out/fuzz_processor -minimize_crash=1 -runs=20000 /out/artifacts/processor/<artifact>
 
+`build.sh [SOURCE] [OUT] [TARGET]` builds all targets by default. When `TARGET`
+is given, only `bistream`, `processor`, `profile` or `shellcode` is built; the
+bundled libemu is needed only for `profile` and `shellcode`.
+
 ## Python targets
 
 atheris 3.0.0 runs on Python 3.6 to 3.12, not on the 3.14 of the image, so the

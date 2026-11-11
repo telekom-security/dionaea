@@ -6,14 +6,16 @@
 # SPDX-License-Identifier: CC0-1.0
 
 # Build the C fuzz targets with clang, libFuzzer, ASan and UBSan (see ../README.md):
-#   build.sh [SOURCE] [OUT]
-# SOURCE is the checkout (default /src), OUT the folder of the build (default /out).
+#   build.sh [SOURCE] [OUT] [TARGET]
+# SOURCE is the checkout (default /src), OUT the folder of the build (default /out),
+# TARGET is one C fuzz target or all (default all).
 # COVERAGE=1 builds them for llvm-cov instead (source based coverage, no sanitizers),
 # to replay a corpus with -runs=0.
 set -eu
 
 SRC=${1:-/src}
 OUT=${2:-/out}
+TARGET=${3:-all}
 CC=${CC:-clang}
 SANITIZE="-fsanitize=address,undefined -fno-sanitize-recover=undefined"
 CFLAGS="-g -O1 -fno-omit-frame-pointer $SANITIZE"
@@ -21,6 +23,14 @@ if [ "${COVERAGE:-0}" = 1 ]; then
 	CFLAGS="-g -O0 -fprofile-instr-generate -fcoverage-mapping"
 fi
 HERE="$SRC/tests/fuzz/c"
+
+case "$TARGET" in
+	all|bistream|processor|profile|shellcode) ;;
+	*)
+		echo "unknown C fuzz target: $TARGET" >&2
+		exit 2
+		;;
+esac
 
 mkdir -p "$OUT/include"
 # what the sources take from the config.h of CMake
@@ -44,14 +54,16 @@ GLIB="$(pkg-config --cflags glib-2.0)"
 GLIB_LIBS="$(pkg-config --libs glib-2.0)"
 INCLUDES="-I$OUT/include -I$SRC/include -I$SRC -I$HERE $GLIB"
 
-# the bundled libemu, instrumented, without the shift and signed-integer-overflow checks of UBSan
-# (as in the libemu-test stage of the Dockerfile); configured once (a second configure of the
-# standalone libemu skips its project())
-[ -f "$OUT/libemu/CMakeCache.txt" ] || cmake -S "$SRC/third_party/libemu" -B "$OUT/libemu" -DCMAKE_C_COMPILER="$CC" -DCMAKE_BUILD_TYPE=Debug \
-	-DCMAKE_C_FLAGS="$CFLAGS -fsanitize=fuzzer-no-link -fno-sanitize=shift,signed-integer-overflow" >/dev/null
-cmake --build "$OUT/libemu" -j "$(nproc)" >/dev/null
-LIBEMU_INCLUDES="-I$SRC/third_party/libemu/include"
-LIBEMU="$(find "$OUT/libemu" -name 'libemu.a' | head -1)"
+if [ "$TARGET" = all ] || [ "$TARGET" = profile ] || [ "$TARGET" = shellcode ]; then
+	# the bundled libemu, instrumented, without the shift and signed-integer-overflow checks of UBSan
+	# (as in the libemu-test stage of the Dockerfile); configured once (a second configure of the
+	# standalone libemu skips its project())
+	[ -f "$OUT/libemu/CMakeCache.txt" ] || cmake -S "$SRC/third_party/libemu" -B "$OUT/libemu" -DCMAKE_C_COMPILER="$CC" -DCMAKE_BUILD_TYPE=Debug \
+		-DCMAKE_C_FLAGS="$CFLAGS -fsanitize=fuzzer-no-link -fno-sanitize=shift,signed-integer-overflow" >/dev/null
+	cmake --build "$OUT/libemu" -j "$(nproc)" >/dev/null
+	LIBEMU_INCLUDES="-I$SRC/third_party/libemu/include"
+	LIBEMU="$(find "$OUT/libemu" -name 'libemu.a' | head -1)"
+fi
 
 target() {
 	name=$1
@@ -60,13 +72,34 @@ target() {
 	$CC $CFLAGS -fsanitize=fuzzer "$@" -o "$OUT/$name"
 }
 
-target fuzz_bistream $INCLUDES "$HERE/fuzz_bistream.c" "$SRC/src/bistream.c" $GLIB_LIBS
+build_bistream() {
+	target fuzz_bistream $INCLUDES "$HERE/fuzz_bistream.c" "$SRC/src/bistream.c" $GLIB_LIBS
+}
 
-target fuzz_processor $INCLUDES -I"$SRC/tests/processor" "$HERE/fuzz_processor.c" \
-	"$SRC/tests/processor/stubs.c" "$SRC/src/processor.c" "$SRC/src/streamcap.c" "$SRC/src/util.c" \
-	"$SRC/src/threads.c" "$SRC/src/bistream.c" "$SRC/src/refcount.c" $GLIB_LIBS -lev
+build_processor() {
+	target fuzz_processor $INCLUDES -I"$SRC/tests/processor" "$HERE/fuzz_processor.c" \
+		"$SRC/tests/processor/stubs.c" "$SRC/src/processor.c" "$SRC/src/streamcap.c" "$SRC/src/util.c" \
+		"$SRC/src/threads.c" "$SRC/src/bistream.c" "$SRC/src/refcount.c" "$SRC/src/log_summary.c" $GLIB_LIBS -lev
+}
 
-target fuzz_profile $INCLUDES $LIBEMU_INCLUDES -I"$SRC/modules/emu" "$HERE/fuzz_profile.c" \
-	"$SRC/modules/emu/profile.c" "$LIBEMU" $GLIB_LIBS -lev
+build_profile() {
+	target fuzz_profile $INCLUDES $LIBEMU_INCLUDES -I"$SRC/modules/emu" "$HERE/fuzz_profile.c" \
+		"$SRC/modules/emu/profile.c" "$LIBEMU" $GLIB_LIBS -lev
+}
 
-target fuzz_shellcode $LIBEMU_INCLUDES "$HERE/fuzz_shellcode.c" "$LIBEMU"
+build_shellcode() {
+	target fuzz_shellcode $LIBEMU_INCLUDES "$HERE/fuzz_shellcode.c" "$LIBEMU"
+}
+
+case "$TARGET" in
+	all)
+		build_bistream
+		build_processor
+		build_profile
+		build_shellcode
+		;;
+	bistream) build_bistream ;;
+	processor) build_processor ;;
+	profile) build_profile ;;
+	shellcode) build_shellcode ;;
+esac
