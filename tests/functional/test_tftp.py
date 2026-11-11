@@ -67,7 +67,7 @@ def test_tftp_rrq_is_logged_with_the_port_of_the_service(dionaea_ip, my_ip, wait
     # dst_port of dionaea.json and local_port of the connections table
     with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
         sock.settimeout(10)
-        sock.bind(("", 0))
+        sock.bind((my_ip, 0))
         src_port = sock.getsockname()[1]
         sock.sendto(_rrq(b"functional-test.txt"), (dionaea_ip, 69))
         reply, peer = sock.recvfrom(4096)
